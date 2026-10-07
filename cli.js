@@ -84,16 +84,18 @@ async function main() {
       render: { type: 'string' },
       width: { type: 'string', default: '1000' },
       'font-size': { type: 'string', default: '18' },
+      'math-scale': { type: 'string', default: '1' },
     },
   });
   if (values.help || positionals.length === 0) {
-    console.log(`Usage: view-latex-md file.md [--light] [--font-size 18]
+    console.log(`Usage: view-latex-md file.md [--light] [--font-size 18] [--math-scale 1]
        view-latex-md file.md --render output.png [--width 1000]
 
 Markdown + $inline math$, $$display math$$, \\(math\\), \\[math\\].
 Keys: ↑/↓ j/k scroll · PgUp/PgDn Space page · g/G top/bottom
       +/- zoom · e edit ($VISUAL/$EDITOR, default vi) · r reload · q quit
 Requires Kitty graphics support (cmux, Ghostty, Kitty).
+MathJax SVG equations; --math-scale adjusts only formula size (0.5–3).
 Rendering is offline. Raw HTML and remote images are disabled.`);
     return;
   }
@@ -102,8 +104,10 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
   await fs.access(file);
   let fontSize = Number(values['font-size']);
   const initialFontSize = fontSize;
+  const mathScale = Number(values['math-scale']);
   const exportWidth = Number(values.width);
   if (!Number.isFinite(fontSize) || fontSize < 10 || fontSize > 48) throw new Error('--font-size must be between 10 and 48.');
+  if (!Number.isFinite(mathScale) || mathScale < .5 || mathScale > 3) throw new Error('--math-scale must be between 0.5 and 3.');
   if (!Number.isInteger(exportWidth) || exportWidth < 200 || exportWidth > 8000) throw new Error('--width must be an integer between 200 and 8000.');
   let terminal;
   if (!values.render) {
@@ -116,7 +120,7 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
   const renderer = await createRenderer();
   try {
     if (values.render) {
-      await renderer.load(file, { width: exportWidth, height: 800, fontSize, foreground: values.light ? '#24292f' : '#d8dee9' });
+      await renderer.load(file, { width: exportWidth, height: 800, fontSize, mathScale, foreground: values.light ? '#24292f' : '#d8dee9' });
       await renderer.exportPNG(path.resolve(values.render));
       console.log(`Rendered ${values.render}`);
       return;
@@ -146,7 +150,7 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       status = 'rendering…';
       footer();
       ({ maxScroll } = await renderer.load(file, {
-        width: Math.max(1, Math.floor(columns * terminal.cellWidth)), height, fontSize,
+        width: Math.max(1, Math.floor(columns * terminal.cellWidth)), height, fontSize, mathScale,
         foreground: values.light ? '#24292f' : terminal.foreground,
       }));
       status = message;

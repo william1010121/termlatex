@@ -7,10 +7,14 @@ Markdown 與數學先在本機一起排版，再用 Kitty graphics protocol 顯�
 ```sh
 view-latex-md test.md
 view-latex-md notes.md --font-size 20
+view-latex-md notes.md --math-scale 1.2
 ```
 
 支援標題、清單、表格、引用、連結文字、程式碼區塊、本地圖片，以及
-`$...$`、`$$...$$`、`\(...\)`、`\[...\]` 數學。數學使用 KaTeX 支援的 LaTeX 子集，
+`$...$`、`$$...$$`、`\(...\)`、`\[...\]` 數學。公式使用 MathJax 4 的 SVG 輸出與預設
+New Computer Modern 字形、基線與間距，不依賴終端或瀏覽器的數學替代字型。
+`--math-scale` 只調整公式大小（預設 1；範圍 0.5–3）；`--font-size` 調整整頁大小。
+數學使用 MathJax 支援的 LaTeX 子集（base、ams、newcommand、noundefined、textmacros、color），
 不是完整 TeX 文件編譯器。原始 HTML 與遠端圖片不載入；閱讀時不需網路。
 
 | 按鍵 | 動作 |

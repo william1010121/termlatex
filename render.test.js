@@ -8,17 +8,18 @@ import { markdown, createRenderer } from './render.js';
 test('inline/display math, Markdown, and literal code coexist', () => {
   const html = markdown('# Title\n\n中文 $x^2$。\n\n$$\n\\frac{1}{2}\n$$\n\n`$literal$`\n\n```tex\n$x^2$\n```\n\n| A | B |\n|---|---|\n| 1 | $y$ |');
   assert.match(html, /<h1>Title<\/h1>/);
-  assert.match(html, /class="katex-display"/);
+  assert.match(html, /<mjx-container[^>]*display="true"/);
   assert.match(html, /<table>/);
   assert.match(html, /<code>\$literal\$<\/code>/);
   assert.match(html, /<code class="language-tex">\$x\^2\$/);
-  assert.equal((html.match(/class="katex"/g) || []).length, 3);
+  assert.equal((html.match(/<svg /g) || []).length, 3);
+  assert.match(html, /<path data-c=/, 'math glyphs must be SVG outlines');
 });
 
 test('raw HTML cannot run scripts and invalid math remains visible', () => {
   assert.doesNotMatch(markdown('<script>alert(1)</script>'), /<script>/);
   assert.match(markdown('$\\unsupportedCommand$'), /unsupportedCommand/);
-  assert.match(markdown('\\(x^2\\)'), /class="katex"/);
+  assert.match(markdown('\\(x^2\\)'), /<svg /);
 });
 
 test('offline rendering produces PNGs at viewport size, including scroll and reload', async () => {
@@ -34,6 +35,8 @@ test('offline rendering produces PNGs at viewport size, including scroll and rel
     assert.equal(first.readUInt32BE(16), 1280);
     assert.equal(first.readUInt32BE(20), 960);
     assert.notDeepEqual(first, last);
+    await renderer.load(file, { width: 640, height: 480, mathScale: 1.4 });
+    assert.notDeepEqual(await renderer.frame(), first, 'formula size must change the rendered pixels');
     await renderer.load(file, { width: 640, height: 480, fontSize: 28 });
     assert.notDeepEqual(await renderer.frame(), first, 'zoom must change the rendered pixels');
     await fs.writeFile(file, '# Changed\n\n$\\sqrt{2}$');

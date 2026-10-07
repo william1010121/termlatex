@@ -1,20 +1,42 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import MarkdownIt from 'markdown-it';
 import texmath from 'markdown-it-texmath';
-import katex from 'katex';
 import puppeteer from 'puppeteer';
+import { mathjax } from '@mathjax/src/js/mathjax.js';
+import { TeX } from '@mathjax/src/js/input/tex.js';
+import { SVG } from '@mathjax/src/js/output/svg.js';
+import { liteAdaptor } from '@mathjax/src/js/adaptors/liteAdaptor.js';
+import { RegisterHTMLHandler } from '@mathjax/src/js/handlers/html.js';
+import '@mathjax/src/js/util/asyncLoad/esm.js';
+import '@mathjax/src/js/input/tex/ams/AmsConfiguration.js';
+import '@mathjax/src/js/input/tex/newcommand/NewcommandConfiguration.js';
+import '@mathjax/src/js/input/tex/noundefined/NoUndefinedConfiguration.js';
+import '@mathjax/src/js/input/tex/textmacros/TextMacrosConfiguration.js';
+import '@mathjax/src/js/input/tex/color/ColorConfiguration.js';
 
-const require = createRequire(import.meta.url);
-const katexDir = path.dirname(require.resolve('katex/package.json'));
+const adaptor = liteAdaptor();
+RegisterHTMLHandler(adaptor);
+const svg = new SVG({ fontCache: 'none' });
+// Preload the installed New Computer Modern outlines: no web fonts or CDN requests.
+await svg.font.loadDynamicFiles();
+const mathDocument = mathjax.document('', {
+  InputJax: new TeX({ packages: ['base', 'ams', 'newcommand', 'noundefined', 'textmacros', 'color'] }),
+  OutputJax: svg,
+});
+const mathCSS = adaptor.cssText(svg.styleSheet(mathDocument));
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
   .use(texmath, {
-    engine: katex, delimiters: ['dollars', 'brackets'],
-    katexOptions: { throwOnError: false, trust: false, strict: 'ignore' },
+    engine: {
+      renderToString(source, { displayMode }) {
+        return adaptor.outerHTML(mathDocument.convert(source, { display: displayMode }));
+      },
+    },
+    delimiters: ['dollars', 'brackets'],
   });
 
 export function markdown(source) {
+  mathDocument.inputJax[0].reset();
   return md.render(source);
 }
 
@@ -32,13 +54,9 @@ export async function createRenderer() {
         const url = new URL(request.url());
         if (url.protocol === 'data:') return request.continue();
         if (url.hostname !== 'view-latex-md.invalid') return request.abort();
-        const isFont = url.pathname.startsWith('/katex/fonts/');
-        const base = isFont ? path.join(katexDir, 'dist/fonts') : root;
-        const relative = decodeURIComponent(isFont ? url.pathname.slice(13) : url.pathname.slice(1));
-        const file = await fs.realpath(path.resolve(base, relative));
-        if (!file.startsWith(base + path.sep)) return request.abort();
+        const file = await fs.realpath(path.resolve(root, decodeURIComponent(url.pathname.slice(1))));
+        if (!file.startsWith(root + path.sep)) return request.abort();
         const mime = {
-          '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
           '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
           '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
         }[path.extname(file).toLowerCase()];
@@ -48,12 +66,10 @@ export async function createRenderer() {
         if (!request.isInterceptResolutionHandled()) await request.abort();
       }
     });
-    const mathCSS = (await fs.readFile(path.join(katexDir, 'dist/katex.min.css'), 'utf8'))
-      .replaceAll('url(fonts/', 'url(https://view-latex-md.invalid/katex/fonts/');
     let docHeight = 0;
     let viewHeight = 0;
     return {
-      async load(file, { width, height, fontSize = 18, foreground = '#d8dee9' }) {
+      async load(file, { width, height, fontSize = 18, mathScale = 1, foreground = '#d8dee9' }) {
         root = await fs.realpath(path.dirname(file));
         const body = markdown(await fs.readFile(file, 'utf8'));
         await page.setViewport({ width, height, deviceScaleFactor: 2 });
@@ -80,8 +96,7 @@ export async function createRenderer() {
           th { background:#8882; }
           hr { border:0; border-top:1px solid #8887; margin:1.4em 0; }
           img { max-width:100%; height:auto; }
-          .katex { font-size:1.08em; }
-          .katex-display { margin:1em 0; }
+          mjx-container { font-size:${mathScale}em; }
           </style></head><body><main>${body}</main></body></html>`, { waitUntil: 'load' });
         await page.evaluate(async () => {
           await document.fonts.ready;
@@ -89,9 +104,9 @@ export async function createRenderer() {
             image.onload = image.onerror = resolve;
           })));
           // Fit display equations without affecting inline baselines.
-          for (const equation of document.querySelectorAll('.katex-display > .katex')) {
-            const math = equation.querySelector('.katex-html');
-            const available = equation.parentElement.clientWidth;
+          for (const equation of document.querySelectorAll('mjx-container[display]')) {
+            const math = equation.querySelector('svg');
+            const available = equation.clientWidth;
             const actual = math?.getBoundingClientRect().width || 0;
             if (actual > available) equation.style.fontSize = `${parseFloat(getComputedStyle(equation).fontSize) * available / actual}px`;
           }
