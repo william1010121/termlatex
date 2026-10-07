@@ -20,6 +20,29 @@ function commands(text) {
   return [...text.matchAll(/\x1b_G([^;]*);([^\x1b]*)\x1b\\/g)];
 }
 
+test('Zellij crop refresh reuses PNG bytes, retransmits changed crops and skips identical frames', async () => {
+  const { out, chunks } = sink();
+  const sender = createGraphics(out, { startId: 10, refreshCrops: true });
+  const image = tile(0);
+  const id = await sender.ensure(image);
+  for (const y of [0, 10, 10, 20, 0]) {
+    assert(await sender.present(id, { ...placement, y }));
+  }
+  await sender.flush();
+  const sequence = commands(chunks.join(''));
+  const transfers = sequence.filter(([, control]) => control.startsWith('a=t'));
+  assert.equal(transfers.length, 4, 'first frame plus three changed crops, without another screenshot');
+  for (const [, control, data] of transfers) {
+    assert(control.includes(`i=${id},`));
+    assert.ok(Buffer.from(data, 'base64').equals(image.png));
+  }
+  const placements = sequence.filter(([, control]) => control.startsWith('a=p'));
+  assert.equal(placements.length, 5);
+  assert.deepEqual(placements.map(([, control]) => Number(control.match(/,y=(\d+)/)[1])), [0, 10, 10, 20, 0]);
+  assert(placements.every(([, control]) => control.includes(',c=20,r=4,')));
+  await sender.dispose(); out.end();
+});
+
 test('batched upload preserves <=4096 payloads and serializes overlapping frames', async () => {
   const { out, chunks } = sink(1);
   const sender = createGraphics(out, { startId: 10 });

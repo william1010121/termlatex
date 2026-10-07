@@ -43,3 +43,9 @@ VERIFY_RASTER_SCALE=2 python3 verification.test.py
 ## 尚未採用的候選
 
 目前螢幕 60 Hz，增加輸出頻率主要會增加指令與終端工作。更小的圖片區段會增加截圖次數；預先截取文末會佔掉一般捲動快取。這些改動對現有量測沒有足夠收益，暫不加入。若還要明顯降低完全冷的跳頁延遲，下一步應量 Chromium 的截圖成本與替代光柵化器，而非繼續調捲動 easing。
+
+## Zellij 0.45.1 相容修正
+
+上面的零 PNG 快取捲動量測適用於直接執行的終端。Zellij 0.45.1 的縮放圖片快取不會把裁切變動重新送到外層終端，原生裁切也有座標處理問題。因此 Zellij 內保留 `c/r` 縮放，但裁切變動時重新傳送已快取的 PNG，建立新的內部圖片，並以約 30Hz 輸出指令。這會增加傳輸與 Zellij 重編碼成本，但不重新做 TeX 排版或 Chromium 截圖。相同裁切的 reload 不會因此重傳。
+
+`python3 zellij.test.py` 使用真正的 Zellij 與本工具的 graphics 模組，解碼它送到外層終端的 RGBA；1×／2× 都驗證紅 → 綠 → 藍 → 紅的裁切變化。上游問題見 [Kitty graphics placement issue #5573](https://github.com/zellij-org/zellij/issues/5573)。待穩定版包含修正後，可以移除這條相容路徑，再比較實際捲動效能。

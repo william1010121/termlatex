@@ -146,7 +146,9 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       return `${ESC}[${rows + 1};1H${ESC}[2K${ESC}[?7l${ESC}[7m${cleanText(text).slice(0, columns)}${ESC}[0m${ESC}[?7h`;
     };
     const footer = () => write(footerText());
-    sender = createGraphics(out, { input, onError: error => {
+    const inZellij = process.env.ZELLIJ !== undefined;
+    const frameInterval = inZellij ? 33 : 16;
+    sender = createGraphics(out, { input, refreshCrops: inZellij, onError: error => {
       errorMessage = error.message;
       // Recover a terminal-evicted texture on the next serialized draw.
       if (active && !quitting && ++graphicsFailures <= 1) schedule(() => draw());
@@ -231,7 +233,7 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       const revision = scrollRevision;
       schedule(async () => {
         try {
-          let previous = performance.now() - 16;
+          let previous = performance.now() - frameInterval;
           do {
             if (quitting || !active || revision !== scrollRevision) return;
             const started = performance.now();
@@ -241,7 +243,7 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
             y = pendingImmediate || Math.abs(remaining) < 1 ? targetY : y + remaining * blend;
             pendingImmediate = false;
             await draw();
-            if (y !== targetY) await new Promise(resolve => setTimeout(resolve, Math.max(0, 16 - (performance.now() - started))));
+            if (y !== targetY) await new Promise(resolve => setTimeout(resolve, Math.max(0, frameInterval - (performance.now() - started))));
           } while (y !== targetY);
         } finally {
           scrolling = false;

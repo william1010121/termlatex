@@ -29,7 +29,7 @@ def run():
         process = subprocess.Popen(
             ["node", str(ROOT / "cli.js"), str(document)],
             stdin=slave, stdout=slave, stderr=slave,
-            env={**os.environ, "VISUAL": str(editor)}, start_new_session=True,
+            env={**{key: value for key, value in os.environ.items() if not key.startswith("ZELLIJ")}, "VISUAL": str(editor)}, start_new_session=True,
         )
         os.close(slave)
         rejected_probes = set()
@@ -62,7 +62,20 @@ def run():
                     assert all(int(crop) <= maximum_y for crop in crops), "jump during capture used an invalid source rectangle"
                 if footers and b"rendering" not in footers[-1] and expected in footers[-1] and crops and int(crops[-1]) >= minimum_y:
                     chunks = re.findall(rb"\x1b_G([^;]*);([^\x1b]*)\x1b\\", output)
-                    png = base64.b64decode(b"".join(chunk for control, chunk in chunks if chunk and (b"a=t," in control or control.startswith(b"m="))))
+                    # Transfers can straddle frame() calls or belong to a
+                    # speculative neighbor. Decode each complete upload, not
+                    # one concatenation of unrelated/incomplete base64 streams.
+                    pending = None
+                    png = b""
+                    for control, chunk in chunks:
+                        if b"a=t," in control:
+                            pending = bytearray()
+                        if pending is not None and (b"a=t," in control or control.startswith(b"m=")):
+                            pending.extend(chunk)
+                            if control.endswith(b"m=0"):
+                                if not png:
+                                    png = base64.b64decode(pending, validate=True)
+                                pending = None
                     return footers[-1], png
             raise AssertionError(f"No frame for {key!r}: {output[-300:]!r}")
 

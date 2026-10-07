@@ -14,7 +14,7 @@ viewheight=(rows-1)*20;stride=(min(viewheight*3,4096) if size=='large' else view
 with tempfile.TemporaryDirectory() as d:
  doc=d+'/bench.md';open(doc,'w').write('# Benchmark\n\n'+('Text and $\\sum_{n=1}^\\infty 1/n^2 = \\pi^2/6$. 中文測試。\n\n'*400))
  m,s=pty.openpty();fcntl.ioctl(s,termios.TIOCSWINSZ,struct.pack('HHHH',rows,cols,width,windowheight))
- p=subprocess.Popen(['node',ROOT+'/cli.js',doc],stdin=s,stdout=s,stderr=s,start_new_session=True);os.close(s)
+ p=subprocess.Popen(['node',ROOT+'/cli.js',doc],stdin=s,stdout=s,stderr=s,env={key:value for key,value in os.environ.items() if not key.startswith("ZELLIJ")},start_new_session=True);os.close(s)
  buf=b'';frames=[];uploads=[];answered=False;phase='start';t0=time.monotonic();directbytes=0;files=0;probes=0
  def poll(timeout=.01):
   global buf,answered,directbytes,files,probes

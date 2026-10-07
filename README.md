@@ -8,6 +8,8 @@ Markdown 與數學先在本機一起排版，再用 Kitty graphics protocol 顯�
 截圖採用較快的無損 PNG 編碼。SVG 字形共用，純公式在同一文件內去重；縮放重用已排好的公式，連按 zoom 會合併處理。
 捲動途中按 reload、zoom 或 edit，會中斷動畫直接處理；reload 每次重讀檔案，內容未變時保留圖片快取。
 終端支援本機檔案傳輸時會使用它，否則自動退回分段圖片傳輸；暫存圖片在收到回覆後移除。
+在 Zellij 內會自動啟用裁切更新相容處理：0.45.1 會保留舊的縮放圖片，因此改變裁切位置時需重傳快取 PNG。
+公式與截圖仍會快取，捲動指令改以約 30Hz 輸出，避免累積傳輸；直接在 cmux／Ghostty／Kitty 執行維持原本約 60Hz 的快取路徑。
 
 ```sh
 view-latex-md test.md
@@ -64,10 +66,12 @@ npm test
 python3 terminal.test.py
 python3 verification.test.py
 VERIFY_RASTER_SCALE=2 python3 verification.test.py
+python3 zellij.test.py
 ```
 
 PNG 保留透明背景，方便在無互動終端的環境檢查排版。
 PTY 整合測試會比較縮放／重載後的圖片內容，並檢查連續滾動時的重載、截圖途中跳頁、編輯返回、視窗大小變更與退出。
 獨立驗證器會重建每張 Kitty 圖片、解碼首屏與文末的像素，並檢查分段傳輸、快取、錯誤回覆、檔案傳輸回退、編輯器輸入與資源清理。
+Zellij 測試會開獨立的暫存 session，檢查 1×／2× 的正向與反向裁切實際送到外層終端的像素，不碰既有 session。
 
 效能量測、重現指令與目前的冷截圖限制見 [PERFORMANCE.md](PERFORMANCE.md)。

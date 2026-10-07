@@ -10,7 +10,7 @@ export const graphicsCommand = (control, data = '') => `${ESC}_G${control};${dat
 // Keep each transmission atomic, but batch its individual (<=4096 byte) APCs
 // into larger writes to avoid a syscall and drain wait for every APC.
 export function createGraphics(out, { input, maxBytes = 192 * 1024 * 1024,
-  startId = Math.floor(Math.random() * 0x7ffffffe) + 1, onError = () => {} } = {}) {
+  startId = Math.floor(Math.random() * 0x7ffffffe) + 1, refreshCrops = false, onError = () => {} } = {}) {
   const cache = new Map(), replies = new Map();
   let directory, fileTransport = false;
   let queue = Promise.resolve(), epoch = 0, nextId = startId, current = null;
@@ -148,9 +148,18 @@ export function createGraphics(out, { input, maxBytes = 192 * 1024 * 1024,
     return enqueue(async () => {
       const entry = [...cache.values()].find(entry => entry.id === id && entry.resident);
       if (!entry) return false;
+      const crop = `${y}:${width}:${height}:${columns}:${rows}`;
+      // Zellij 0.45.1 caches forwarded scaled pixels by image id and cell size,
+      // ignoring changes to the crop. Re-uploading creates a fresh internal
+      // image before placement. Keep the PNG/typesetting cache; only transport again.
+      if (refreshCrops && entry.crop !== undefined && entry.crop !== crop) {
+        await upload(entry.tile.png, id);
+        if (cache.get(entry.key) !== entry) return false;
+      }
       let text = `${ESC}[?2026h${ESC}[H${before}`;
       if (current !== null && current !== id) text += graphicsCommand(`a=d,d=i,i=${current},q=2`);
       text += graphicsCommand(`a=p,i=${id},p=1,x=0,y=${y},w=${width},h=${height},c=${columns},r=${rows},C=1,q=1`);
+      entry.crop = crop;
       current = id;
       entry.pinned = false;
       touch(entry);
