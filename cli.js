@@ -10,9 +10,16 @@ const ESC = '\x1b';
 const out = process.stdout;
 const input = process.stdin;
 const imageId = Math.floor(Math.random() * 0x7ffffffe) + 1;
+const uploaded = new Map();
+let currentImage = null;
+let nextImage = imageId;
 const write = text => out.write(text);
 const graphics = (control, data = '') => `${ESC}_G${control};${data}${ESC}\\`;
-const clearImage = () => write(graphics(`a=d,d=I,i=${imageId},q=2`));
+const clearImage = () => {
+  for (const id of uploaded.values()) write(graphics(`a=d,d=I,i=${id},q=2`));
+  uploaded.clear();
+  currentImage = null;
+};
 const cleanText = value => value.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 let active = false;
 
@@ -52,13 +59,11 @@ async function queryTerminal() {
   };
 }
 
-async function transmit(png, columns, rows) {
-  clearImage();
-  write(`${ESC}[H`);
+async function upload(png, id) {
   const data = png.toString('base64');
   for (let offset = 0; offset < data.length; offset += 4096) {
     const more = offset + 4096 < data.length ? 1 : 0;
-    const header = offset === 0 ? `a=T,t=d,f=100,i=${imageId},p=1,c=${columns},r=${rows},C=1,q=2,m=${more}` : `m=${more}`;
+    const header = offset === 0 ? `a=t,t=d,f=100,i=${id},q=2,m=${more}` : `m=${more}`;
     if (!write(graphics(header, data.slice(offset, offset + 4096)))) {
       await new Promise(resolve => out.once('drain', resolve));
     }
@@ -125,8 +130,9 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       console.log(`Rendered ${values.render}`);
       return;
     }
-    let y = 0, maxScroll = 0, height = 0, rows = 0, columns = 0;
-    let errorMessage = '', status = '', quitting = false, busy = false;
+    let y = 0, targetY = 0, maxScroll = 0, height = 0, rows = 0, columns = 0;
+    let scrolling = false;
+    let errorMessage = '', status = '', quitting = false;
     let queue = Promise.resolve();
     const footer = () => {
       const percent = maxScroll ? Math.round(y / maxScroll * 100) : 100;
@@ -136,8 +142,29 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     };
     async function draw() {
       y = Math.max(0, Math.min(y, maxScroll));
-      await transmit(await renderer.frame(y), columns, rows);
+      const tile = await renderer.tile(y);
+      let id = uploaded.get(tile.start);
+      if (id === undefined) {
+        id = nextImage++;
+        if (nextImage > 0x7fffffff) nextImage = 1;
+        await upload(tile.png, id);
+        uploaded.set(tile.start, id);
+      } else {
+        uploaded.delete(tile.start);
+        uploaded.set(tile.start, id);
+      }
+      write(`${ESC}[?2026h${ESC}[H`);
+      if (currentImage !== null && currentImage !== id) write(graphics(`a=d,d=i,i=${currentImage},q=2`));
+      // Crop the already uploaded texture. No Chromium capture or PNG transfer on a cache hit.
+      write(graphics(`a=p,i=${id},p=1,x=0,y=${Math.round((y - tile.start) * 2)},w=${tile.width},h=${height * 2},c=${columns},r=${rows},C=1,q=2`));
+      currentImage = id;
+      if (uploaded.size > tile.cacheLimit) {
+        const [start, evicted] = uploaded.entries().next().value;
+        write(graphics(`a=d,d=I,i=${evicted},q=2`));
+        uploaded.delete(start);
+      }
       footer();
+      write(`${ESC}[?2026l`);
     }
     async function load(message = '') {
       if (columns !== out.columns || rows !== out.rows - 1) {
@@ -154,6 +181,8 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
         foreground: values.light ? '#24292f' : terminal.foreground,
       }));
       status = message;
+      clearImage();
+      y = targetY = Math.max(0, Math.min(y, maxScroll));
       await draw();
     }
     let finish;
@@ -161,27 +190,42 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     function schedule(action) {
       queue = queue.then(async () => {
         if (quitting) return;
-        busy = true;
         try { errorMessage = ''; await action(); }
         catch (error) { errorMessage = error.message; footer(); }
-        finally { busy = false; }
       });
     }
     function quit() { quitting = true; finish(); }
+    function scrollTo(next, immediate = false) {
+      targetY = Math.max(0, Math.min(next, maxScroll));
+      if (immediate) y = targetY;
+      if (scrolling) return;
+      scrolling = true;
+      schedule(async () => {
+        try {
+          do {
+            if (quitting || !active) return;
+            const started = performance.now();
+            const remaining = targetY - y;
+            y = Math.abs(remaining) < 1 ? targetY : y + remaining * .4;
+            await draw();
+            if (y !== targetY) await new Promise(resolve => setTimeout(resolve, Math.max(0, 16 - (performance.now() - started))));
+          } while (y !== targetY);
+        } finally { scrolling = false; }
+      });
+    }
     async function keypress(str, key = {}) {
       if (!active) return;
       if (str === 'q' || (key.ctrl && key.name === 'c')) return quit();
-      // Keep zoom/reload commands even while a frame is rendering.
-      if (busy && !['+', '=', '-', 'r', 'e'].includes(str)) return;
+      const step = fontSize * 1.65;
+      if (key.name === 'down' || str === 'j') return scrollTo(targetY + step);
+      if (key.name === 'up' || str === 'k') return scrollTo(targetY - step);
+      if (key.name === 'pagedown' || str === ' ' || str === 'f') return scrollTo(targetY + height * .9);
+      if (key.name === 'pageup' || str === 'b') return scrollTo(targetY - height * .9);
+      if (str === 'g' || key.name === 'home') return scrollTo(0, true);
+      if (str === 'G' || key.name === 'end') return scrollTo(maxScroll, true);
+      if (!['+', '=', '-', 'r', 'e'].includes(str)) return;
       schedule(async () => {
-        const step = fontSize * 1.65 * 3;
-        if (key.name === 'down' || str === 'j') y += step;
-        else if (key.name === 'up' || str === 'k') y -= step;
-        else if (key.name === 'pagedown' || str === ' ' || str === 'f') y += height * .9;
-        else if (key.name === 'pageup' || str === 'b') y -= height * .9;
-        else if (str === 'g' || key.name === 'home') y = 0;
-        else if (str === 'G' || key.name === 'end') y = maxScroll;
-        else if (str === '+' || str === '=' || str === '-') {
+        if (str === '+' || str === '=' || str === '-') {
           fontSize = Math.max(10, Math.min(48, fontSize + (str === '-' ? -2 : 2)));
           return load();
         } else if (str === 'r') return load(`reloaded ${new Date().toLocaleTimeString('en-GB')}`);
@@ -189,14 +233,16 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
           leave();
           try { await edit(file); } finally { if (!quitting) enter(); }
           return load('reloaded after editor');
-        } else return;
-        await draw();
+        }
       });
     }
+    let mouseTail = '';
     function mouse(data) {
-      if (!active || busy) return;
-      for (const match of data.toString().matchAll(/\x1b\[<(64|65);\d+;\d+M/g)) {
-        schedule(async () => { y += (match[1] === '64' ? -1 : 1) * fontSize * 3; await draw(); });
+      if (!active) return;
+      const sequence = mouseTail + data.toString();
+      mouseTail = sequence.match(/\x1b(?:\[(?:<[\d;]*)?)?$/)?.[0] || '';
+      for (const match of sequence.matchAll(/\x1b\[<(64|65);\d+;\d+M/g)) {
+        scrollTo(targetY + (match[1] === '64' ? -1 : 1) * fontSize * 1.65);
       }
     }
     // The pixel size per cell remains fixed when only the pane dimensions change.

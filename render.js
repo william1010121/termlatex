@@ -68,8 +68,14 @@ export async function createRenderer() {
     });
     let docHeight = 0;
     let viewHeight = 0;
+    let viewWidth = 0;
+    let tileHeight = 0;
+    let cacheLimit = 3;
+    const tiles = new Map();
     return {
       async load(file, { width, height, fontSize = 18, mathScale = 1, foreground = '#d8dee9' }) {
+        tiles.clear();
+        viewWidth = width;
         root = await fs.realpath(path.dirname(file));
         const body = markdown(await fs.readFile(file, 'utf8'));
         await page.setViewport({ width, height, deviceScaleFactor: 2 });
@@ -112,13 +118,37 @@ export async function createRenderer() {
           }
         });
         viewHeight = height;
+        // Always cover at least two screens, even in a large pane; a one-screen
+        // strip would require a fresh screenshot for every pixel of movement.
+        tileHeight = Math.max(height * 2, Math.min(height * 3, 4096, Math.floor(64 * 1024 * 1024 / (width * 16))));
+        cacheLimit = Math.max(1, Math.min(3, Math.floor(192 * 1024 * 1024 / (width * tileHeight * 16))));
         docHeight = await page.evaluate(() => Math.ceil(document.querySelector('main').getBoundingClientRect().height));
         return { height: docHeight, maxScroll: Math.max(0, docHeight - viewHeight) };
       },
       async frame(offset = 0) {
+        await page.setViewport({ width: viewWidth, height: viewHeight, deviceScaleFactor: 2 });
         offset = Math.max(0, Math.min(offset, Math.max(0, docHeight - viewHeight)));
         await page.evaluate(y => { document.querySelector('main').style.transform = `translateY(-${y}px)`; }, offset);
         return Buffer.from(await page.screenshot({ type: 'png', omitBackground: true }));
+      },
+      async tile(offset = 0) {
+        const stride = Math.max(1, tileHeight - viewHeight);
+        const start = Math.floor(Math.max(0, offset) / stride) * stride;
+        if (tiles.has(start)) {
+          const cached = tiles.get(start);
+          tiles.delete(start);
+          tiles.set(start, cached);
+          return cached;
+        }
+        await page.setViewport({ width: viewWidth, height: tileHeight, deviceScaleFactor: 2 });
+        await page.evaluate(y => { document.querySelector('main').style.transform = `translateY(-${y}px)`; }, start);
+        const tile = {
+          start, width: viewWidth * 2, height: tileHeight * 2, cacheLimit,
+          png: Buffer.from(await page.screenshot({ type: 'png', omitBackground: true })),
+        };
+        tiles.set(start, tile);
+        if (tiles.size > cacheLimit) tiles.delete(tiles.keys().next().value);
+        return tile;
       },
       async exportPNG(file) {
         await page.evaluate(() => { document.querySelector('main').style.transform = ''; });

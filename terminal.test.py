@@ -33,7 +33,7 @@ def run():
         )
         os.close(slave)
 
-        def frame(key=None, expected=b"", timeout=10):
+        def frame(key=None, expected=b"", timeout=10, minimum_y=0):
             if key is not None:
                 os.write(master, key)
             output = b""
@@ -47,7 +47,8 @@ def run():
                     os.write(master, b"\x1b[6;20;10t\x1b[4;600;900t\x1b]10;rgb:dddd/eeee/ffff\x1b\\\x1b_Gi=31;OK\x1b\\")
                     answered = True
                 footers = re.findall(rb"\x1b\[7m([^\x1b]*)\x1b\[0m", output)
-                if footers and b"rendering" not in footers[-1] and expected in footers[-1]:
+                crops = re.findall(rb"a=p,[^;]*,y=(\d+)", output)
+                if footers and b"rendering" not in footers[-1] and expected in footers[-1] and crops and int(crops[-1]) >= minimum_y:
                     chunks = re.findall(rb"\x1b_G[^;]*;([^\x1b]*)\x1b\\", output)
                     png = base64.b64decode(b"".join(chunk for chunk in chunks if chunk and chunk != b"AAAA"))
                     return footers[-1], png
@@ -56,6 +57,15 @@ def run():
         try:
             first, first_png = frame(expected=b"zoom 100%")
             assert first_png[1:4] == b"PNG"
+            # Eight wheel ticks should all contribute, without re-uploading PNG data.
+            wheel = b"\x1b[<65;10;10M"
+            _, scroll_png = frame(wheel * 8, minimum_y=475)
+            assert scroll_png == b"", "cached scrolling must only send crop commands"
+            # Also handle a mouse packet split across reads.
+            os.write(master, wheel[:7])
+            _, scroll_png = frame(wheel[7:], minimum_y=535)
+            assert scroll_png == b""
+            frame(b"g", b"0%  zoom")
             zoomed, zoom_png = frame(b"=", b"zoom 111% (20px)")
             assert zoom_png != first_png, "zoom must change pixels"
             frame(b"-", b"zoom 100% (18px)")
@@ -81,7 +91,7 @@ def run():
                         break
             process.wait(timeout=5)
             assert process.returncode == 0
-            print("PASS: zoom pixels, scrolling, reload pixels, editor round trip, resize, clean quit")
+            print("PASS: cached smooth scrolling, wheel bursts/split packets, zoom, reload, editor, resize, clean quit")
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)

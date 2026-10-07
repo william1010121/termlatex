@@ -3,6 +3,8 @@
 在 cmux、Ghostty 或 Kitty 裡閱讀 Markdown 和 LaTeX 的獨立命令列工具。
 Markdown 與數學先在本機一起排版，再用 Kitty graphics protocol 顯示透明圖片，
 中文和行內公式使用同一套排版，不受終端固定字格的基線限制。
+附近幾頁會快取成圖片（依畫面大小保留 1–3 個區段）；捲動時只更新終端的裁切位置，以約 60Hz 平滑移動。
+跨到未快取的區段，以及縮放或重載時，才重新產生並上傳圖片。
 
 ```sh
 view-latex-md test.md
