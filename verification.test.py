@@ -74,7 +74,7 @@ class Terminal:
         self.resize(rows, columns, fd=slave)
         raster_args = ["--raster-scale", os.environ["VERIFY_RASTER_SCALE"]] if "VERIFY_RASTER_SCALE" in os.environ else []
         self.process = subprocess.Popen(
-            ["node", str(ROOT / "cli.js"), str(document), *raster_args], stdin=slave, stdout=slave,
+            ["node", str(ROOT / "browser-cli.js"), str(document), *raster_args], stdin=slave, stdout=slave,
             stderr=slave, env={**{key: value for key, value in os.environ.items() if not key.startswith("ZELLIJ")}, **({"VISUAL": str(editor)} if editor else {})},
             start_new_session=True,
         )

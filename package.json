@@ -1,22 +1,60 @@
 {
   "name": "view-latex-md",
   "version": "0.1.0",
-  "description": "Markdown and LaTeX reader for Kitty graphics terminals",
+  "description": "Read Markdown and real LaTeX formulas in your terminal: native text, transparent math images, no browser",
   "type": "module",
-  "private": true,
   "bin": {
     "view-latex-md": "cli.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test packages/terminal-math/*.test.js",
+    "test:native": "node --test packages/terminal-math/*.test.js",
+    "test:browser": "node --test graphics.test.js render.test.js verification.math.test.js verification.render.test.js",
+    "bench:native": "node native-benchmark.js"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "@mathjax/src": "^4.1.3",
-    "markdown-it": "^15.0.2",
-    "markdown-it-texmath": "^1.0.0",
-    "puppeteer": "^25.12.0"
+    "string-width": "^8.3.0",
+    "view-latex-md-math": "^0.1.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "files": [
+    "cli.js",
+    "native-cli.js",
+    "native-export.js",
+    "native-demo.md",
+    "README.md",
+    "LICENSE",
+    "assets/gaussian.svg",
+    "README.zh-TW.md"
+  ],
+  "license": "MIT",
+  "author": "william1010121",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/william1010121/view-latex-md.git"
+  },
+  "homepage": "https://github.com/william1010121/view-latex-md",
+  "bugs": {
+    "url": "https://github.com/william1010121/view-latex-md/issues"
+  },
+  "keywords": [
+    "markdown",
+    "latex",
+    "terminal",
+    "tui",
+    "mathjax",
+    "kitty",
+    "zellij",
+    "cli",
+    "reader",
+    "inline-math"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

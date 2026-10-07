@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a rendering, layout or terminal transport problem
+labels: [bug]
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Minimal Markdown sample
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Terminal and version, multiplexer and version, OS, Node version, package version, and whether source mode works.
+    validations:
+      required: true

@@ -27,7 +27,7 @@ def run():
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 90, 900, 600))
         process = subprocess.Popen(
-            ["node", str(ROOT / "cli.js"), str(document)],
+            ["node", str(ROOT / "browser-cli.js"), str(document)],
             stdin=slave, stdout=slave, stderr=slave,
             env={**{key: value for key, value in os.environ.items() if not key.startswith("ZELLIJ")}, "VISUAL": str(editor)}, start_new_session=True,
         )

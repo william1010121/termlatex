@@ -1,0 +1,61 @@
+{
+  "name": "view-latex-md-math",
+  "version": "0.1.0",
+  "description": "Browser-free LaTeX formulas and native-text Markdown layout for JavaScript terminal UIs",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./formula": "./formula.js",
+    "./layout": "./layout.js",
+    "./terminal": "./terminal.js",
+    "./export": "./export.js"
+  },
+  "files": [
+    "index.js",
+    "formula.js",
+    "layout.js",
+    "terminal.js",
+    "export.js",
+    "README.md",
+    "LICENSE",
+    "README.zh-TW.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test *.test.js"
+  },
+  "dependencies": {
+    "@mathjax/src": "^4.1.3",
+    "@resvg/resvg-js": "^2.6.2",
+    "markdown-it": "^15.0.2",
+    "string-width": "^8.3.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/william1010121/view-latex-md.git",
+    "directory": "packages/terminal-math"
+  },
+  "homepage": "https://github.com/william1010121/view-latex-md/tree/main/packages/terminal-math",
+  "bugs": {
+    "url": "https://github.com/william1010121/view-latex-md/issues"
+  },
+  "keywords": [
+    "latex",
+    "mathjax",
+    "markdown",
+    "terminal",
+    "tui",
+    "kitty",
+    "graphics",
+    "svg",
+    "inline-math",
+    "zellij"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "william1010121"
+}
