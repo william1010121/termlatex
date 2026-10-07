@@ -132,6 +132,8 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     }
     let y = 0, targetY = 0, maxScroll = 0, height = 0, rows = 0, columns = 0;
     let scrolling = false;
+    let pendingImmediate = false, scrollRevision = 0;
+    let prefetch = null, lastFrameY = 0, direction = 1;
     let errorMessage = '', status = '', quitting = false;
     let queue = Promise.resolve();
     const footer = () => {
@@ -142,7 +144,8 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     };
     async function draw() {
       y = Math.max(0, Math.min(y, maxScroll));
-      const tile = await renderer.tile(y);
+      const frameY = y;
+      const tile = await renderer.tile(frameY);
       let id = uploaded.get(tile.start);
       if (id === undefined) {
         id = nextImage++;
@@ -156,7 +159,7 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       write(`${ESC}[?2026h${ESC}[H`);
       if (currentImage !== null && currentImage !== id) write(graphics(`a=d,d=i,i=${currentImage},q=2`));
       // Crop the already uploaded texture. No Chromium capture or PNG transfer on a cache hit.
-      write(graphics(`a=p,i=${id},p=1,x=0,y=${Math.round((y - tile.start) * 2)},w=${tile.width},h=${height * 2},c=${columns},r=${rows},C=1,q=2`));
+      write(graphics(`a=p,i=${id},p=1,x=0,y=${Math.round((frameY - tile.start) * 2)},w=${tile.width},h=${height * 2},c=${columns},r=${rows},C=1,q=2`));
       currentImage = id;
       if (uploaded.size > tile.cacheLimit) {
         const [start, evicted] = uploaded.entries().next().value;
@@ -165,6 +168,14 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       }
       footer();
       write(`${ESC}[?2026l`);
+      if (frameY !== lastFrameY) direction = Math.sign(frameY - lastFrameY);
+      lastFrameY = frameY;
+      const next = tile.start + direction * tile.stride;
+      if (!prefetch && !quitting && next >= 0 && next <= maxScroll) {
+        // Only capture in the background. Upload stays in draw(), so Kitty's
+        // chunked image transfer never interleaves with placement commands.
+        prefetch = renderer.tile(next).catch(() => {}).finally(() => { prefetch = null; });
+      }
     }
     async function load(message = '') {
       if (columns !== out.columns || rows !== out.rows - 1) {
@@ -187,7 +198,12 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     }
     let finish;
     const done = new Promise(resolve => { finish = resolve; });
-    function schedule(action) {
+    function schedule(action, interruptScroll = false) {
+      if (interruptScroll) {
+        ++scrollRevision;
+        targetY = y;
+        pendingImmediate = false;
+      }
       queue = queue.then(async () => {
         if (quitting) return;
         try { errorMessage = ''; await action(); }
@@ -197,20 +213,28 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     function quit() { quitting = true; finish(); }
     function scrollTo(next, immediate = false) {
       targetY = Math.max(0, Math.min(next, maxScroll));
-      if (immediate) y = targetY;
+      if (immediate) pendingImmediate = true;
       if (scrolling) return;
       scrolling = true;
+      const revision = scrollRevision;
       schedule(async () => {
         try {
+          let previous = performance.now() - 16;
           do {
-            if (quitting || !active) return;
+            if (quitting || !active || revision !== scrollRevision) return;
             const started = performance.now();
             const remaining = targetY - y;
-            y = Math.abs(remaining) < 1 ? targetY : y + remaining * .4;
+            const blend = 1 - Math.exp(-Math.max(1, started - previous) / 24);
+            previous = started;
+            y = pendingImmediate || Math.abs(remaining) < 1 ? targetY : y + remaining * blend;
+            pendingImmediate = false;
             await draw();
             if (y !== targetY) await new Promise(resolve => setTimeout(resolve, Math.max(0, 16 - (performance.now() - started))));
           } while (y !== targetY);
-        } finally { scrolling = false; }
+        } finally {
+          scrolling = false;
+          if (!quitting && targetY !== y) scrollTo(targetY);
+        }
       });
     }
     async function keypress(str, key = {}) {
@@ -234,7 +258,7 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
           try { await edit(file); } finally { if (!quitting) enter(); }
           return load('reloaded after editor');
         }
-      });
+      }, true);
     }
     let mouseTail = '';
     function mouse(data) {
@@ -246,7 +270,18 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       }
     }
     // The pixel size per cell remains fixed when only the pane dimensions change.
-    const resize = () => schedule(() => load());
+    let resizePending = false;
+    const resize = () => {
+      if (resizePending) return;
+      resizePending = true;
+      schedule(async () => {
+        try { await load(); }
+        finally {
+          resizePending = false;
+          if (columns !== out.columns || rows !== out.rows - 1) resize();
+        }
+      }, true);
+    };
     emitKeypressEvents(input);
     enter();
     process.on('SIGTERM', quit);

@@ -33,13 +33,18 @@ def run():
         )
         os.close(slave)
 
-        def frame(key=None, expected=b"", timeout=10, minimum_y=0):
+        def frame(key=None, expected=b"", timeout=10, minimum_y=0, maximum_y=None, wheel_for=0):
             if key is not None:
                 os.write(master, key)
             output = b""
             answered = False
             deadline = time.monotonic() + timeout
+            wheel_deadline = time.monotonic() + wheel_for
+            next_wheel = time.monotonic()
             while time.monotonic() < deadline:
+                if next_wheel <= time.monotonic() < wheel_deadline:
+                    os.write(master, b"\x1b[<65;10;10M")
+                    next_wheel = time.monotonic() + .02
                 if not select.select([master], [], [], .1)[0]:
                     continue
                 output += os.read(master, 65536)
@@ -48,6 +53,8 @@ def run():
                     answered = True
                 footers = re.findall(rb"\x1b\[7m([^\x1b]*)\x1b\[0m", output)
                 crops = re.findall(rb"a=p,[^;]*,y=(\d+)", output)
+                if maximum_y is not None:
+                    assert all(int(crop) <= maximum_y for crop in crops), "jump during capture used an invalid source rectangle"
                 if footers and b"rendering" not in footers[-1] and expected in footers[-1] and crops and int(crops[-1]) >= minimum_y:
                     chunks = re.findall(rb"\x1b_G[^;]*;([^\x1b]*)\x1b\\", output)
                     png = base64.b64decode(b"".join(chunk for chunk in chunks if chunk and chunk != b"AAAA"))
@@ -71,6 +78,18 @@ def run():
             frame(b"-", b"zoom 100% (18px)")
             frame(b"G", b"100%  zoom")
             frame(b"g", b"0%  zoom")
+            # Jump while a distant strip may still be capturing. Every source
+            # crop must remain inside the strip selected for that frame.
+            os.write(master, wheel * 50)
+            time.sleep(.045)
+            frame(b"G", b"100%  zoom", maximum_y=2320)
+            frame(b"g", b"0%  zoom")
+            # Continued wheel input must not starve a queued reload.
+            os.write(master, wheel * 8)
+            started = time.monotonic()
+            frame(b"r", b"reloaded ", timeout=1.5, wheel_for=2)
+            assert time.monotonic() - started < 1.5
+            frame(b"g", b"0%  zoom")
             document.write_text("# Reloaded\n\n$\\sqrt{3}$\n")
             reloaded, reload_png = frame(b"r", b"reloaded ")
             assert reload_png != first_png, "reload must show the changed file"
@@ -91,7 +110,7 @@ def run():
                         break
             process.wait(timeout=5)
             assert process.returncode == 0
-            print("PASS: cached smooth scrolling, wheel bursts/split packets, zoom, reload, editor, resize, clean quit")
+            print("PASS: cached scrolling, bursts/split packets, jump during capture, reload during scrolling, zoom, editor, resize, clean quit")
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)

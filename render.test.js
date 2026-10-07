@@ -53,6 +53,16 @@ test('offline rendering produces PNGs at viewport size, including scroll and rel
     const largePaneTile = await renderer.tile(0);
     assert.ok(largePaneTile.height >= 6800, 'large panes still need overscan to avoid per-pixel screenshots');
     assert.strictEqual(await renderer.tile(100), largePaneTile);
+    const ahead = renderer.tile(largePaneTile.stride);
+    assert.strictEqual(await renderer.tile(100), largePaneTile, 'cache hits must not wait for background capture');
+    await ahead;
+    assert.strictEqual(await renderer.tile(100), largePaneTile, 'prefetch must retain the current PNG even with a one-texture terminal budget');
+    const pendingCapture = renderer.tile(largePaneTile.stride * 2);
+    const pendingReload = renderer.load(file, { width: 640, height: 480 });
+    await Promise.all([pendingCapture, pendingReload]);
+    const fresh = await renderer.tile(0);
+    assert.equal(fresh.width, 1280, 'reload must follow background capture without stale dimensions');
+    assert.notStrictEqual(fresh, largePaneTile);
   } finally {
     await renderer.close();
     await fs.rm(dir, { recursive: true, force: true });
