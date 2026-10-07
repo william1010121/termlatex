@@ -32,6 +32,7 @@ def run():
             env={**os.environ, "VISUAL": str(editor)}, start_new_session=True,
         )
         os.close(slave)
+        rejected_probes = set()
 
         def frame(key=None, expected=b"", timeout=10, minimum_y=0, maximum_y=None, wheel_for=0):
             if key is not None:
@@ -51,26 +52,34 @@ def run():
                 if not answered and b"i=31;AAAA" in output:
                     os.write(master, b"\x1b[6;20;10t\x1b[4;600;900t\x1b]10;rgb:dddd/eeee/ffff\x1b\\\x1b_Gi=31;OK\x1b\\")
                     answered = True
+                for probe in re.findall(rb"a=q,t=f,[^;]*,i=(\d+)", output):
+                    if probe not in rejected_probes:
+                        os.write(master, b"\x1b_Gi=" + probe + b";ENOTSUP\x1b\\")
+                        rejected_probes.add(probe)
                 footers = re.findall(rb"\x1b\[7m([^\x1b]*)\x1b\[0m", output)
                 crops = re.findall(rb"a=p,[^;]*,y=(\d+)", output)
                 if maximum_y is not None:
                     assert all(int(crop) <= maximum_y for crop in crops), "jump during capture used an invalid source rectangle"
                 if footers and b"rendering" not in footers[-1] and expected in footers[-1] and crops and int(crops[-1]) >= minimum_y:
-                    chunks = re.findall(rb"\x1b_G[^;]*;([^\x1b]*)\x1b\\", output)
-                    png = base64.b64decode(b"".join(chunk for chunk in chunks if chunk and chunk != b"AAAA"))
+                    chunks = re.findall(rb"\x1b_G([^;]*);([^\x1b]*)\x1b\\", output)
+                    png = base64.b64decode(b"".join(chunk for control, chunk in chunks if chunk and (b"a=t," in control or control.startswith(b"m="))))
                     return footers[-1], png
             raise AssertionError(f"No frame for {key!r}: {output[-300:]!r}")
 
         try:
             first, first_png = frame(expected=b"zoom 100%")
             assert first_png[1:4] == b"PNG"
+            # Let speculative upload finish before checking the warm-scroll path.
+            idle_deadline = time.monotonic() + 2
+            while time.monotonic() < idle_deadline and select.select([master], [], [], .2)[0]:
+                os.read(master, 65536)
             # Eight wheel ticks should all contribute, without re-uploading PNG data.
             wheel = b"\x1b[<65;10;10M"
-            _, scroll_png = frame(wheel * 8, minimum_y=475)
+            _, scroll_png = frame(wheel * 8, minimum_y=238)
             assert scroll_png == b"", "cached scrolling must only send crop commands"
             # Also handle a mouse packet split across reads.
             os.write(master, wheel[:7])
-            _, scroll_png = frame(wheel[7:], minimum_y=535)
+            _, scroll_png = frame(wheel[7:], minimum_y=267)
             assert scroll_png == b""
             frame(b"g", b"0%  zoom")
             zoomed, zoom_png = frame(b"=", b"zoom 111% (20px)")
@@ -82,7 +91,7 @@ def run():
             # crop must remain inside the strip selected for that frame.
             os.write(master, wheel * 50)
             time.sleep(.045)
-            frame(b"G", b"100%  zoom", maximum_y=2320)
+            frame(b"G", b"100%  zoom", maximum_y=1160)
             frame(b"g", b"0%  zoom")
             # Continued wheel input must not starve a queued reload.
             os.write(master, wheel * 8)

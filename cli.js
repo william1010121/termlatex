@@ -4,22 +4,15 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { emitKeypressEvents } from 'node:readline';
 import { spawn } from 'node:child_process';
-import { createRenderer } from './render.js';
+import { PassThrough } from 'node:stream';
+import { createGraphics, graphicsCommand as graphics } from './graphics.js';
 
 const ESC = '\x1b';
 const out = process.stdout;
 const input = process.stdin;
-const imageId = Math.floor(Math.random() * 0x7ffffffe) + 1;
-const uploaded = new Map();
-let currentImage = null;
-let nextImage = imageId;
 const write = text => out.write(text);
-const graphics = (control, data = '') => `${ESC}_G${control};${data}${ESC}\\`;
-const clearImage = () => {
-  for (const id of uploaded.values()) write(graphics(`a=d,d=I,i=${id},q=2`));
-  uploaded.clear();
-  currentImage = null;
-};
+let sender;
+const clearImage = () => sender?.clear();
 const cleanText = value => value.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 let active = false;
 
@@ -29,9 +22,9 @@ function enter() {
   write(`${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h`);
   active = true;
 }
-function leave() {
+async function leave() {
   if (active) {
-    clearImage();
+    await clearImage();
     write(`${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`);
     active = false;
   }
@@ -41,11 +34,20 @@ function leave() {
 
 async function queryTerminal() {
   let response = '';
-  const listener = data => { response += data.toString(); };
+  let complete;
+  const received = new Promise(resolve => { complete = resolve; });
+  const listener = data => {
+    response += data.toString();
+    if (/\x1b_Gi=31;[^\x1b]*\x1b\\/.test(response) &&
+        /\x1b\[(?:6|4);\d+;\d+t/.test(response) &&
+        /10;rgb:[a-f\d]+\/[a-f\d]+\/[a-f\d]+(?:\x07|\x1b\\)/i.test(response)) complete();
+  };
   input.on('data', listener);
   write(`${ESC}[16t${ESC}[14t${ESC}]10;?${ESC}\\`);
   write(graphics('a=q,t=d,f=24,s=1,v=1,i=31', 'AAAA'));
-  await new Promise(resolve => setTimeout(resolve, 350));
+  const timer = setTimeout(complete, 350);
+  await received;
+  clearTimeout(timer);
   input.off('data', listener);
   const cell = response.match(/\x1b\[6;(\d+);(\d+)t/);
   const window = response.match(/\x1b\[4;(\d+);(\d+)t/);
@@ -57,17 +59,6 @@ async function queryTerminal() {
     cellHeight: cell ? Number(cell[1]) : window ? Number(window[1]) / rows : 18,
     foreground: rgb ? '#' + rgb.slice(1).map(v => Math.round(parseInt(v, 16) * 255 / (16 ** v.length - 1)).toString(16).padStart(2, '0')).join('') : '#d8dee9',
   };
-}
-
-async function upload(png, id) {
-  const data = png.toString('base64');
-  for (let offset = 0; offset < data.length; offset += 4096) {
-    const more = offset + 4096 < data.length ? 1 : 0;
-    const header = offset === 0 ? `a=t,t=d,f=100,i=${id},q=2,m=${more}` : `m=${more}`;
-    if (!write(graphics(header, data.slice(offset, offset + 4096)))) {
-      await new Promise(resolve => out.once('drain', resolve));
-    }
-  }
 }
 
 async function edit(file) {
@@ -90,6 +81,7 @@ async function main() {
       width: { type: 'string', default: '1000' },
       'font-size': { type: 'string', default: '18' },
       'math-scale': { type: 'string', default: '1' },
+      'raster-scale': { type: 'string' },
     },
   });
   if (values.help || positionals.length === 0) {
@@ -101,6 +93,7 @@ Keys: ↑/↓ j/k scroll · PgUp/PgDn Space page · g/G top/bottom
       +/- zoom · e edit ($VISUAL/$EDITOR, default vi) · r reload · q quit
 Requires Kitty graphics support (cmux, Ghostty, Kitty).
 MathJax SVG equations; --math-scale adjusts only formula size (0.5–3).
+Native terminal pixels by default; --raster-scale 2 enables supersampling.
 Rendering is offline. Raw HTML and remote images are disabled.`);
     return;
   }
@@ -110,22 +103,31 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
   let fontSize = Number(values['font-size']);
   const initialFontSize = fontSize;
   const mathScale = Number(values['math-scale']);
+  const rasterScale = Number(values['raster-scale'] || (values.render ? '2' : '1'));
   const exportWidth = Number(values.width);
   if (!Number.isFinite(fontSize) || fontSize < 10 || fontSize > 48) throw new Error('--font-size must be between 10 and 48.');
   if (!Number.isFinite(mathScale) || mathScale < .5 || mathScale > 3) throw new Error('--math-scale must be between 0.5 and 3.');
+  if (![1, 2].includes(rasterScale)) throw new Error('--raster-scale must be 1 or 2.');
   if (!Number.isInteger(exportWidth) || exportWidth < 200 || exportWidth > 8000) throw new Error('--width must be an integer between 200 and 8000.');
   let terminal;
+  if (!values.render && (!input.isTTY || !out.isTTY)) throw new Error('Run in an interactive terminal, or use --render output.png.');
+  // Start the local browser while terminal capability replies are in flight.
+  // Help/argument errors never need to load MathJax or Chromium.
+  const rendererPromise = import('./render.js').then(module => module.createRenderer());
+  rendererPromise.catch(() => {});
   if (!values.render) {
-    if (!input.isTTY || !out.isTTY) throw new Error('Run in an interactive terminal, or use --render output.png.');
     input.setRawMode(true);
     input.resume();
     try { terminal = await queryTerminal(); } finally { input.setRawMode(false); input.pause(); }
-    if (!terminal.supported) throw new Error('Terminal did not acknowledge Kitty graphics. Try cmux, Ghostty, or Kitty (directly, without tmux).');
+    if (!terminal.supported) {
+      await rendererPromise.then(renderer => renderer.close(), () => {});
+      throw new Error('Terminal did not acknowledge Kitty graphics. Try cmux, Ghostty, or Kitty (directly, without tmux).');
+    }
   }
-  const renderer = await createRenderer();
+  const renderer = await rendererPromise;
   try {
     if (values.render) {
-      await renderer.load(file, { width: exportWidth, height: 800, fontSize, mathScale, foreground: values.light ? '#24292f' : '#d8dee9' });
+      await renderer.load(file, { width: exportWidth, height: 800, fontSize, mathScale, scale: rasterScale, foreground: values.light ? '#24292f' : '#d8dee9' });
       await renderer.exportPNG(path.resolve(values.render));
       console.log(`Rendered ${values.render}`);
       return;
@@ -133,67 +135,65 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
     let y = 0, targetY = 0, maxScroll = 0, height = 0, rows = 0, columns = 0;
     let scrolling = false;
     let pendingImmediate = false, scrollRevision = 0;
-    let prefetch = null, lastFrameY = 0, direction = 1;
-    let errorMessage = '', status = '', quitting = false;
+    let prefetch = null, lastFrameY = 0, direction = 1, generation = 0;
+    let requestedFontSize = fontSize, loadPending = false, loadMessage = '';
+    let errorMessage = '', status = '', quitting = false, graphicsFailures = 0;
     let queue = Promise.resolve();
-    const footer = () => {
+    const footerText = () => {
       const percent = maxScroll ? Math.round(y / maxScroll * 100) : 100;
       const zoom = Math.round(fontSize / initialFontSize * 100);
       const text = errorMessage || `${path.basename(file)}  ${percent}%  zoom ${zoom}% (${fontSize}px)${status ? '  ' + status : ''}  ↑↓/jk scroll · Space page · +/- zoom · e edit · r reload · q quit`;
-      write(`${ESC}[${rows + 1};1H${ESC}[2K${ESC}[?7l${ESC}[7m${cleanText(text).slice(0, columns)}${ESC}[0m${ESC}[?7h`);
+      return `${ESC}[${rows + 1};1H${ESC}[2K${ESC}[?7l${ESC}[7m${cleanText(text).slice(0, columns)}${ESC}[0m${ESC}[?7h`;
     };
+    const footer = () => write(footerText());
+    sender = createGraphics(out, { input, onError: error => {
+      errorMessage = error.message;
+      // Recover a terminal-evicted texture on the next serialized draw.
+      if (active && !quitting && ++graphicsFailures <= 1) schedule(() => draw());
+      else footer();
+    } });
     async function draw() {
       y = Math.max(0, Math.min(y, maxScroll));
       const frameY = y;
       const tile = await renderer.tile(frameY);
-      let id = uploaded.get(tile.start);
-      if (id === undefined) {
-        id = nextImage++;
-        if (nextImage > 0x7fffffff) nextImage = 1;
-        await upload(tile.png, id);
-        uploaded.set(tile.start, id);
-      } else {
-        uploaded.delete(tile.start);
-        uploaded.set(tile.start, id);
-      }
-      write(`${ESC}[?2026h${ESC}[H`);
-      if (currentImage !== null && currentImage !== id) write(graphics(`a=d,d=i,i=${currentImage},q=2`));
-      // Crop the already uploaded texture. No Chromium capture or PNG transfer on a cache hit.
-      write(graphics(`a=p,i=${id},p=1,x=0,y=${Math.round((frameY - tile.start) * 2)},w=${tile.width},h=${height * 2},c=${columns},r=${rows},C=1,q=2`));
-      currentImage = id;
-      if (uploaded.size > tile.cacheLimit) {
-        const [start, evicted] = uploaded.entries().next().value;
-        write(graphics(`a=d,d=I,i=${evicted},q=2`));
-        uploaded.delete(start);
-      }
-      footer();
-      write(`${ESC}[?2026l`);
+      const id = await sender.ensure(tile);
+      if (id === null) return;
+      const scale = tile.scale || 2;
+      const placed = await sender.present(id, {
+        y: Math.round((frameY - tile.start) * scale), width: tile.width,
+        height: height * scale, columns, rows, after: footerText(),
+      });
+      if (!placed) return draw();
       if (frameY !== lastFrameY) direction = Math.sign(frameY - lastFrameY);
       lastFrameY = frameY;
       const next = tile.start + direction * tile.stride;
       if (!prefetch && !quitting && next >= 0 && next <= maxScroll) {
-        // Only capture in the background. Upload stays in draw(), so Kitty's
-        // chunked image transfer never interleaves with placement commands.
-        prefetch = renderer.tile(next).catch(() => {}).finally(() => { prefetch = null; });
+        const version = generation;
+        prefetch = renderer.tile(next).then(ahead => {
+          if (version === generation && active && !quitting) return sender.ensure(ahead, { prefetch: true });
+        }).catch(() => {}).finally(() => { prefetch = null; });
       }
     }
     async function load(message = '') {
       if (columns !== out.columns || rows !== out.rows - 1) {
-        clearImage();
+        await clearImage();
         write(`${ESC}[2J${ESC}[H`);
       }
       columns = Math.max(1, out.columns || 100);
       rows = Math.max(1, (out.rows || 35) - 1);
       height = Math.max(1, Math.floor(rows * terminal.cellHeight));
       status = 'rendering…';
+      graphicsFailures = 0;
       footer();
-      ({ maxScroll } = await renderer.load(file, {
-        width: Math.max(1, Math.floor(columns * terminal.cellWidth)), height, fontSize, mathScale,
+      const loaded = await renderer.load(file, {
+        width: Math.max(1, Math.floor(columns * terminal.cellWidth)), height, fontSize, mathScale, scale: rasterScale,
         foreground: values.light ? '#24292f' : terminal.foreground,
-      }));
+      });
+      maxScroll = loaded.maxScroll;
       status = message;
-      clearImage();
+      if (loaded.changed !== false) await clearImage();
       y = targetY = Math.max(0, Math.min(y, maxScroll));
+      lastFrameY = y;
       await draw();
     }
     let finish;
@@ -211,6 +211,18 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       });
     }
     function quit() { quitting = true; finish(); }
+    function requestLoad(message = '') {
+      ++generation;
+      loadMessage = message;
+      if (loadPending) return;
+      loadPending = true;
+      schedule(async () => {
+        loadPending = false;
+        fontSize = requestedFontSize;
+        await load(loadMessage);
+        if (columns !== out.columns || rows !== out.rows - 1) requestLoad();
+      }, true);
+    }
     function scrollTo(next, immediate = false) {
       targetY = Math.max(0, Math.min(next, maxScroll));
       if (immediate) pendingImmediate = true;
@@ -248,13 +260,15 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       if (str === 'g' || key.name === 'home') return scrollTo(0, true);
       if (str === 'G' || key.name === 'end') return scrollTo(maxScroll, true);
       if (!['+', '=', '-', 'r', 'e'].includes(str)) return;
+      if (str === '+' || str === '=' || str === '-') {
+        requestedFontSize = Math.max(10, Math.min(48, requestedFontSize + (str === '-' ? -2 : 2)));
+        return requestLoad();
+      }
+      if (str === 'r') return requestLoad(`reloaded ${new Date().toLocaleTimeString('en-GB')}`);
+      ++generation;
       schedule(async () => {
-        if (str === '+' || str === '=' || str === '-') {
-          fontSize = Math.max(10, Math.min(48, fontSize + (str === '-' ? -2 : 2)));
-          return load();
-        } else if (str === 'r') return load(`reloaded ${new Date().toLocaleTimeString('en-GB')}`);
-        else if (str === 'e') {
-          leave();
+        if (str === 'e') {
+          await leave();
           try { await edit(file); } finally { if (!quitting) enter(); }
           return load('reloaded after editor');
         }
@@ -270,43 +284,53 @@ Rendering is offline. Raw HTML and remote images are disabled.`);
       }
     }
     // The pixel size per cell remains fixed when only the pane dimensions change.
-    let resizePending = false;
-    const resize = () => {
-      if (resizePending) return;
-      resizePending = true;
-      schedule(async () => {
-        try { await load(); }
-        finally {
-          resizePending = false;
-          if (columns !== out.columns || rows !== out.rows - 1) resize();
-        }
-      }, true);
-    };
-    emitKeypressEvents(input);
+    const resize = () => requestLoad();
+    // Replies are protocol traffic, not shortcut keys. Retain split APCs until
+    // their terminator arrives, then let the graphics sender consume them.
+    const keys = new PassThrough();
+    let replyTail = '';
+    function routeInput(data) {
+      if (!active) return;
+      let text = replyTail + data.toString();
+      replyTail = '';
+      const start = text.lastIndexOf(`${ESC}_G`);
+      if (start >= 0 && !text.slice(start).includes(`${ESC}\\`)) {
+        replyTail = text.slice(start);
+        text = text.slice(0, start);
+      }
+      const partial = text.match(/\x1b_?$/)?.[0];
+      if (partial) { replyTail = partial + replyTail; text = text.slice(0, -partial.length); }
+      text = text.replace(/\x1b_G[^\x1b]*\x1b\\/g, '');
+      if (text) { mouse(Buffer.from(text)); keys.write(text); }
+    }
+    emitKeypressEvents(keys);
     enter();
     process.on('SIGTERM', quit);
     process.on('SIGINT', quit);
     try {
-      input.on('keypress', keypress);
-      input.on('data', mouse);
+      keys.on('keypress', keypress);
+      input.on('data', routeInput);
       out.on('resize', resize);
+      sender.probeFile().catch(() => {});
       schedule(() => load());
       await done;
       await queue;
     } finally {
-      input.off('keypress', keypress);
-      input.off('data', mouse);
+      keys.off('keypress', keypress);
+      input.off('data', routeInput);
+      keys.destroy();
       out.off('resize', resize);
       process.off('SIGTERM', quit);
       process.off('SIGINT', quit);
-      leave();
+      await leave();
+      await sender.dispose();
       input.pause();
     }
   } finally { await renderer.close(); }
 }
 
-main().catch(error => {
-  leave();
+main().catch(async error => {
+  await leave();
   input.pause();
   console.error(`view-latex-md: ${error.message}`);
   process.exitCode = 1;
