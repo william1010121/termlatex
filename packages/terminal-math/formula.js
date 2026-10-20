@@ -80,7 +80,8 @@ export function createFormulaRenderer({ maxBytes = 32 * 1024 * 1024, maxEntries 
   let closed = false;
   let queue = Promise.resolve();
   return {
-    render(tex, { display = false, fontSize = 18, color = '#d8dee9' } = {}) {
+    render(tex, { display = false, fontSize = 18, color = '#d8dee9', signal } = {}) {
+      if (signal?.aborted) return Promise.reject(signal.reason);
       if (closed) return Promise.reject(new Error('Formula renderer is closed'));
       if (typeof tex !== 'string' || Buffer.byteLength(tex) > MAX_TEX_BYTES) {
         return Promise.reject(new RangeError(`Formula must be a string of at most ${MAX_TEX_BYTES} bytes`));
@@ -101,16 +102,18 @@ export function createFormulaRenderer({ maxBytes = 32 * 1024 * 1024, maxEntries 
         hits++;
         return Promise.resolve(entry.value);
       }
-      if (cacheable && inflight.has(key)) {
+      if (cacheable && inflight.get(key)?.has(signal)) {
         hits++;
-        return inflight.get(key);
+        return inflight.get(key).get(signal);
       }
       misses++;
       const currentGeneration = generation;
       const promise = queue.then(async () => {
+        signal?.throwIfAborted();
         // SVG conversion/rasterization is synchronous. Yield between small
         // batches so large documents do not starve input and resize handling.
         if (renders > 0 && renders % 16 === 0) await setImmediate();
+        signal?.throwIfAborted();
         if (closed) throw new Error('Formula renderer is closed');
         renders++;
         const vectorKey = createHash('sha256').update(JSON.stringify([tex, display])).digest('hex');
@@ -132,6 +135,7 @@ export function createFormulaRenderer({ maxBytes = 32 * 1024 * 1024, maxEntries 
         const value = rasterize(prepared.value, { fontSize, color }, key);
         const size = value.png.byteLength + Buffer.byteLength(value.svg);
         if (cacheable && currentGeneration === generation && maxEntries > 0 && size <= rasterBudget) {
+          bytes -= cache.get(key)?.size || 0;
           cache.set(key, { value, size });
           bytes += size;
           while (cache.size > maxEntries || bytes > rasterBudget) {
@@ -143,8 +147,17 @@ export function createFormulaRenderer({ maxBytes = 32 * 1024 * 1024, maxEntries 
         return value;
       });
       queue = promise.catch(() => {});
-      if (cacheable) inflight.set(key, promise);
-      const cleanup = () => { if (inflight.get(key) === promise) inflight.delete(key); };
+      if (cacheable) {
+        if (!inflight.has(key)) inflight.set(key, new Map());
+        inflight.get(key).set(signal, promise);
+      }
+      const cleanup = () => {
+        const requests = inflight.get(key);
+        if (requests?.get(signal) === promise) {
+          requests.delete(signal);
+          if (!requests.size) inflight.delete(key);
+        }
+      };
       promise.then(cleanup, cleanup);
       return promise;
     },
