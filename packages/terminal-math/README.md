@@ -45,8 +45,9 @@ All metrics are **pixels**. `baseline` is the distance from the image's top to t
 | `display` | `false` | True inline math or display math style |
 | `fontSize` | `18` | Formula em pixels; finite, > 0 and ≤ 512 |
 | `color` | `'#d8dee9'` | Six- or eight-digit hexadecimal foreground |
+| `signal` | none | Optional AbortSignal; skips queued work when aborted |
 
-`createFormulaRenderer({ maxBytes, maxEntries })` defaults to 32 MiB and 256 entries **per cache layer**. Size-independent SVG and size/color-specific PNG caches share the byte budget. Duplicate concurrent requests share work. `stats()` reports `typesets`, `renders`, `hits`, `misses`, `entries`, `vectorEntries`, `bytes` and `inflight`. `clear()` empties both caches; `close()` also prevents further work.
+`createFormulaRenderer({ maxBytes, maxEntries })` defaults to 32 MiB and 256 entries **per cache layer**. Size-independent SVG and size/color-specific PNG caches share the byte budget. Duplicate concurrent requests with the same AbortSignal (or no signal) share work. Independent cancellation scopes do not share pending promises; completed cached pixels remain reusable. `stats()` reports `typesets`, `renders`, `hits`, `misses`, `entries`, `vectorEntries`, `bytes` and `inflight`. `clear()` empties both caches; `close()` also prevents further work.
 
 Each expression has independent TeX state. Definitions inside an expression work; cross-expression macros do not. Stateful expressions bypass caches. Invalid TeX rejects without poisoning subsequent work. Inputs and raster dimensions have explicit size limits.
 
@@ -84,6 +85,8 @@ const document = await layoutMarkdown('中文 $x^2$ and **native text**.', {
 `column` is a terminal-cell offset. `topPx` is relative to the group's top. Draw native text at `textRow`; reserve all `heightRows` before the next group. Inline formula ascent/descent expands the group to prevent overlap. Display math is centered in its own tightly fitted group.
 
 The effective formula size is `fontSize × mathScale`; when changing it or the viewport dimensions, call `layoutMarkdown` again. Text baseline defaults to `cellHeight × 0.8`, because terminals report cell dimensions but not font ascent. Hosts can calibrate `textBaselinePx`.
+
+`layoutMarkdown` also accepts an optional `signal: controller.signal`. Aborting rejects with the signal reason rather than returning a partial document or formula warning. Layout stops scheduling new blocks/formulas, checks late renderer results, and periodically yields even for cached formulas or prose. Hosts must discard obsolete generations before presenting a frame. Markdown parsing, individual text-block wrapping, and a running synchronous MathJax/resvg call are not preemptible.
 
 Supported delimiters: `$...$`, `$$...$$`, `\(...\)`, `\[...\]`; code spans/fences are protected. Styles cover headings, lists, quotes, emphasis, links, code and basic tables. CJK/emoji/combining marks use grapheme-aware terminal widths. Oversized formulas shrink to fit; invalid formulas retain source and add `{tex, message}` to `warnings`. Text controls are sanitized before native rendering.
 

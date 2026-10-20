@@ -56,7 +56,12 @@ forwarded host RGBA across forward/reverse and simultaneous top/left crops.
 ## Remaining limits
 
 Cold MathJax/resvg work happens on the JS main thread, yielding every 16 new
-formulas. Initial layout visits the full document; it is not yet a lazy/streaming
+formulas. Interactive layout now carries an AbortSignal: quit, resize, zoom and
+source-mode changes stop obsolete work at cooperative checkpoints; only the
+current generation can submit a new frame. Cached/prose layout also yields
+every 32 block/atom checkpoints. A synchronous formula conversion/rasterization,
+Markdown parse, individual text-block wrap or already-submitted graphics frame
+cannot be interrupted mid-operation. Initial layout visits the full document; it is not yet a lazy/streaming
 background-worker layout. Formula LRU and terminal textures are bounded, but a
 loaded document retains references to its formulas, so total document memory is
 not bounded solely by the renderer cache. Text baseline is a configurable estimate
@@ -67,3 +72,28 @@ Zellij's new crop variants require a raster/upload once; revisits reuse them.
 Zellij still forwards decoded RGBA, so slow remote links or many newly seen crops
 have additional cost. Multiple image placements may also be composited differently
 by terminal implementations; these CPU measurements do not establish GUI smoothness.
+
+
+## Cooperative cancellation verification (2026-10-20)
+
+On Linux / Node 24, a deterministic fake renderer delayed each of 100 formulas
+by 5 ms and aborted after the third call. Main at `813e0fd` still called the
+renderer 100 times and resolved (~524 ms); the signal-aware layout called it
+three times and rejected with `AbortError` (~35 ms). Counts, not wall-clock
+thresholds, are the regression assertion. These timings are synthetic workload
+measurements, not terminal FPS or a guarantee for individual TeX expressions.
+
+`npm test` covers queued renderer cancellation, independent cancellation scopes,
+table `Promise.all` siblings, shrink-pass cancellation, cache byte accounting,
+late signal-ignorant renderer results, recovery and cached/prose yields.
+`python3 native-cancellation.test.py` wraps the real CLI in a PTY with a
+deterministic 15 ms signal-ignorant renderer. It exercises repeated superseding
+zoom requests plus resize, an entirely signal-ignorant obsolete layout (which
+must not present), and quit/SIGINT/SIGTERM mid-layout. Interactive exit paths check raw
+mode, cursor, wrapping, mouse and alternate-screen restoration. SIGINT/SIGTERM
+during the initial capability probe also restore raw mode; that probe can take
+up to its existing 350 ms timeout to finish. The existing
+`native-terminal.test.py` still checks real pixels, baseline-dependent clipping,
+cache reuse, source, reload, editor, resize and 1×/2× export. Both PTY suites run
+in the CI Node/OS matrix. Full-document parsing/layout and retained document
+formula references remain; this is not worker-based or lazy layout.

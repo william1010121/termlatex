@@ -21,6 +21,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: python3 native-terminal.test.py
+      - run: python3 native-cancellation.test.py
       - run: node cli.js --help
       - run: mkdir -p dist
       - run: npm pack --workspace view-latex-md-math --pack-destination dist

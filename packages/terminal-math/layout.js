@@ -1,3 +1,4 @@
+import { setImmediate } from 'node:timers/promises';
 import MarkdownIt from 'markdown-it';
 import stringWidth from 'string-width';
 
@@ -179,6 +180,15 @@ function splitText(atom) {
  * estimate of the terminal font's baseline and may be supplied by the host.
  */
 export async function layoutMarkdown(source, options = {}) {
+  const signal = options.signal;
+  signal?.throwIfAborted();
+  // Also yield for cached formulas and prose, not just cold renderer batches.
+  let work = 0;
+  async function checkpoint() {
+    signal?.throwIfAborted();
+    if (signal && ++work % 32 === 0) await setImmediate();
+    signal?.throwIfAborted();
+  }
   const columns = Math.max(1, Math.floor(options.columns || 80));
   const cellWidth = options.cellWidth || 8, cellHeight = options.cellHeight || 16;
   const textBaselinePx = options.textBaselinePx ?? cellHeight * .8;
@@ -188,18 +198,23 @@ export async function layoutMarkdown(source, options = {}) {
   async function prepare(atoms, available) {
     const prepared = [];
     for (const atom of atoms) {
+      await checkpoint();
       if (atom.type !== 'math') { prepared.push(...(atom.type === 'text' ? splitText(atom) : [atom])); continue; }
       try {
         if (!renderer?.render) throw new Error('No formula renderer supplied');
-        let formula = await renderer.render(atom.tex, { display: atom.display, fontSize, color: options.foreground || '#d8dee9' });
+        let formula = await renderer.render(atom.tex, { display: atom.display, fontSize, color: options.foreground || '#d8dee9', signal });
+        signal?.throwIfAborted();
         if (formula.width > available * cellWidth) {
-          formula = await renderer.render(atom.tex, { display: atom.display, fontSize: fontSize * available * cellWidth / formula.width * .99, color: options.foreground || '#d8dee9' });
+          formula = await renderer.render(atom.tex, { display: atom.display, fontSize: fontSize * available * cellWidth / formula.width * .99, color: options.foreground || '#d8dee9', signal });
         }
+        signal?.throwIfAborted();
         if (![formula.width, formula.height, formula.baseline].every(Number.isFinite) || formula.width < 0 || formula.height < 0) throw new Error('Invalid formula metrics');
         const width = Math.max(1, Math.ceil(formula.width / cellWidth));
         if (width > available) throw new Error('Formula exceeds available terminal columns');
         prepared.push({ ...atom, formula, width });
       } catch (error) {
+        signal?.throwIfAborted();
+        if (error?.name === 'AbortError') throw error;
         warnings.push({ tex: atom.tex, message: error.message });
         prepared.push(...splitText(textAtom(atom.source, { dim: true })));
       }
@@ -255,12 +270,17 @@ export async function layoutMarkdown(source, options = {}) {
     finish();
   }
   for (const block of blocks) {
+    await checkpoint();
     if (block.table) {
       const available = Math.max(1, columns - textWidth(block.prefix));
       const count = Math.max(1, ...block.table.map(cells => cells.length));
       const cellLimit = Math.max(1, Math.floor((available - (count - 1) * 3) / count));
       const preparedRows = [];
-      for (const cells of block.table) preparedRows.push(await Promise.all(cells.map(cell => prepare(cell, cellLimit))));
+      for (const cells of block.table) {
+        await checkpoint();
+        preparedRows.push(await Promise.all(cells.map(cell => prepare(cell, cellLimit))));
+      }
+      signal?.throwIfAborted();
       const widths = Array.from({ length: count }, (_, i) => Math.min(cellLimit, Math.max(1, ...preparedRows.map(cells => (cells[i] || []).reduce((sum, a) => sum + (a.width || 0), 0)))));
       for (const cells of preparedRows) {
         const atoms = [];
@@ -289,5 +309,6 @@ export async function layoutMarkdown(source, options = {}) {
       } else wrap(atoms, block.prefix, block.continuation);
     }
   }
+  signal?.throwIfAborted();
   return { rows, totalRows: rows.reduce((sum, row) => sum + row.heightRows, 0), warnings };
 }
