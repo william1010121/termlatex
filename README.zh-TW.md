@@ -1,15 +1,15 @@
-# view-latex-md
+# TermLatex
 
 在終端閱讀 Markdown 和 LaTeX：**文字保持原生終端文字，只有公式是透明圖片**。
 現在預設使用 repo 裡的 npm 元件 [view-latex-md-math](packages/terminal-math/README.md)，
 MathJax SVG → resvg PNG → Kitty graphics，不需要 Chrome、TeX 或 Rust toolchain。
 
 ```sh
-view-latex-md native-demo.md
-view-latex-md test.md --font-size 22
-view-latex-md notes.md --math-scale 1.2
-view-latex-md notes.md --text-baseline 16
-view-latex-md notes.md --text
+termlatex native-demo.md
+termlatex test.md --font-size 22
+termlatex notes.md --math-scale 1.2
+termlatex notes.md --text-baseline 16
+termlatex notes.md --text
 ```
 
 支援 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`。程式碼中的公式保留原文。
@@ -31,10 +31,10 @@ inline 公式共用文字基線；高分數、積分等會擴張該行的保留�
 cd ~/tool/cli/view-latex-md
 npm ci
 mkdir -p ~/.local/bin
-ln -s "$PWD/cli.js" ~/.local/bin/view-latex-md
+ln -s "$PWD/cli.js" ~/.local/bin/termlatex
 ```
 
-已存在的 `view-latex-md` symlink 不需要重建。閱讀器安裝方式：`npm install -g view-latex-md`。
+新版命令為 `termlatex`，並保留 `view-latex-md` 相容命令。已安裝舊版時，原有 symlink 仍可使用。安裝方式：`npm install -g termlatex`。
 套件可獨立打包給其他 JS 專案使用，見 [套件 README](packages/terminal-math/README.md)。
 
 ## 操作與大小
@@ -69,8 +69,8 @@ npm test
 python3 native-terminal.test.py
 python3 native-zellij.test.py
 node native-benchmark.js
-view-latex-md native-demo.md --render /tmp/preview.png --width 900
-view-latex-md native-demo.md --render /tmp/preview-2x.png --raster-scale 2
+termlatex native-demo.md --render /tmp/preview.png --width 900
+termlatex native-demo.md --render /tmp/preview-2x.png --raster-scale 2
 ```
 
 PNG 匯出不使用 Chrome；公式以 SVG 向量 rasterize，文字用系統 SVG 字型。

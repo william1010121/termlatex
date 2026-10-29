@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { main } from './native-cli.js';
 main().catch(error => {
-  console.error(`view-latex-md: ${error.message}`);
+  console.error(`termlatex: ${error.message}`);
   process.exitCode = 1;
 });

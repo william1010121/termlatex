@@ -1,9 +1,10 @@
 {
-  "name": "view-latex-md",
+  "name": "termlatex",
   "version": "0.1.0",
-  "description": "Read Markdown and real LaTeX formulas in your terminal: native text, transparent math images, no browser",
+  "description": "TermLatex: read Markdown and real LaTeX formulas in your terminal: native text, transparent math images, no browser",
   "type": "module",
   "bin": {
+    "termlatex": "cli.js",
     "view-latex-md": "cli.js"
   },
   "scripts": {
@@ -36,11 +37,11 @@
   "author": "william1010121",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/william1010121/view-latex-md.git"
+    "url": "git+https://github.com/william1010121/termlatex.git"
   },
-  "homepage": "https://github.com/william1010121/view-latex-md",
+  "homepage": "https://github.com/william1010121/termlatex",
   "bugs": {
-    "url": "https://github.com/william1010121/view-latex-md/issues"
+    "url": "https://github.com/william1010121/termlatex/issues"
   },
   "keywords": [
     "markdown",

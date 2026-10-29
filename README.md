@@ -1,9 +1,9 @@
-# view-latex-md
+# TermLatex
 
 **Markdown stays text. Math gets real typesetting.**
 
-[![npm](https://img.shields.io/npm/v/view-latex-md)](https://www.npmjs.com/package/view-latex-md)
-[![CI](https://github.com/william1010121/view-latex-md/actions/workflows/ci.yml/badge.svg)](https://github.com/william1010121/view-latex-md/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/termlatex)](https://www.npmjs.com/package/termlatex)
+[![CI](https://github.com/william1010121/termlatex/actions/workflows/ci.yml/badge.svg)](https://github.com/william1010121/termlatex/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A522-339933.svg)](https://nodejs.org/)
 
@@ -20,14 +20,14 @@ No Chromium download. No TeX installation. No Rust toolchain.
 ## Try it
 
 ```sh
-npx view-latex-md notes.md
+npx termlatex notes.md
 ```
 
 Or install the command:
 
 ```sh
-npm install -g view-latex-md
-view-latex-md notes.md
+npm install -g termlatex
+termlatex notes.md
 ```
 
 Requires **Node.js 22+** and a terminal supporting the **Kitty graphics protocol**. The CLI probes graphics support and cell pixel dimensions; unsupported terminals show the original LaTeX. The renderer uses a prebuilt resvg native addon; supported binaries must be available for your OS/architecture.
@@ -70,11 +70,11 @@ Code stays literal: `$this_is_not_math$`.
 Prose uses your terminal's font and zoom controls. Formula images follow terminal cell-size changes after resize. Use your terminal's selection modifier to select native text while mouse capture is enabled; source mode also releases mouse capture.
 
 ```sh
-view-latex-md notes.md --font-size 22
-view-latex-md notes.md --math-scale 1.2
-view-latex-md notes.md --text-baseline 16
-view-latex-md notes.md --text
-view-latex-md notes.md --light
+termlatex notes.md --font-size 22
+termlatex notes.md --math-scale 1.2
+termlatex notes.md --text-baseline 16
+termlatex notes.md --text
+termlatex notes.md --light
 ```
 
 `--font-size` sets the initial formula em size in pixels (10–48); `--math-scale` multiplies it (0.5–3). Terminals expose cell dimensions, but not exact font ascent: the default text baseline is estimated at 80% of cell height, and `--text-baseline PX` lets you calibrate it.
@@ -123,8 +123,8 @@ This is an embeddable component: an existing TUI must integrate it to display ma
 ## PNG export
 
 ```sh
-view-latex-md notes.md --render preview.png --width 900
-view-latex-md notes.md --render preview-2x.png --raster-scale 2
+termlatex notes.md --render preview.png --width 900
+termlatex notes.md --render preview-2x.png --raster-scale 2
 ```
 
 Exports use vector math and system SVG fonts, without a browser. The output is an offline layout preview; terminal font rendering may differ. `--raster-scale` accepts 1 or 2 and applies only to export.

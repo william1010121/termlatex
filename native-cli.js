@@ -58,7 +58,7 @@ async function queryTerminal(input, output) {
 async function edit(file) {
   const command = process.env.VISUAL || process.env.EDITOR || 'vi';
   await new Promise((resolve, reject) => {
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-c', `${command} "$1"`, 'view-latex-md', file], { stdio: 'inherit' });
+    const child = spawn(process.env.SHELL || '/bin/sh', ['-c', `${command} "$1"`, 'termlatex', file], { stdio: 'inherit' });
     child.on('error', reject);
     child.on('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`Editor exited with ${signal || code}`)));
   });
@@ -72,8 +72,8 @@ export async function main() {
     'text-baseline': { type: 'string' }, 'raster-scale': { type: 'string', default: '1' },
   } });
   if (values.help || !positionals.length) {
-    console.log(`Usage: view-latex-md file.md [--math-scale 1] [--text] [--source]
-       view-latex-md file.md --render output.png [--width 1000]
+    console.log(`Usage: termlatex file.md [--math-scale 1] [--text] [--source]
+       termlatex file.md --render output.png [--width 1000]
 
 Native terminal Markdown text + MathJax formula images. No Chrome or TeX install.
 Keys: ↑/↓ j/k scroll · Space/PgDn/PgUp page · g/G ends

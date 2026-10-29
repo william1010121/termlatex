@@ -5,7 +5,7 @@
 高一點的分數 $\frac{a+b}{\sqrt{c}}$ 會保留需要的行高，後面的文字不會被蓋住。
 
 $$
-\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+\iint_{-\int\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
 $$
 
 ## 原生格式
