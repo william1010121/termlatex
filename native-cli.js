@@ -126,6 +126,7 @@ Scroll uses terminal rows; tall inline formulas expand the surrounding line heig
   let columns = 1, rows = 1, scroll = 0, dirty = false, needsLayout = true;
   let previousLines = [], status = '', lastSource = '', lastSettings = '';
   let sender, probePending = false;
+  let layoutGeneration = 0, layoutController;
   let finish;
   const done = new Promise(resolve => { finish = resolve; });
   const enter = () => {
@@ -149,12 +150,17 @@ Scroll uses terminal rows; tall inline formulas expand the surrounding line heig
   };
   const maxScroll = () => Math.max(0, totalRows - rows);
   const request = (relayout = false) => {
+    if (relayout) { layoutGeneration++; layoutController?.abort(); }
     dirty = true; needsLayout ||= relayout;
     if (!busy && !timer && !quitting) timer = setTimeout(() => { timer = null; void update(); }, 16);
   };
   async function update() {
     if (busy || quitting || !active) return;
     busy = true;
+    const generation = layoutGeneration;
+    const controller = new AbortController();
+    layoutController = controller;
+    const current = () => !quitting && active && generation === layoutGeneration && !controller.signal.aborted;
     try {
       dirty = false;
       if (probePending) {
@@ -165,19 +171,23 @@ Scroll uses terminal rows; tall inline formulas expand the surrounding line heig
           if (profile.pendingInput) routeInput(Buffer.from(profile.pendingInput));
         } finally { input.on('data', routeInput); }
       }
+      if (!current()) return;
       columns = Math.max(1, output.columns || 100); rows = Math.max(1, (output.rows || 35)-1);
       if (needsLayout) {
         needsLayout = false;
         const settings = `${columns}:${fontSize}:${sourceMode}:${profile.cellWidth}:${profile.cellHeight}:${profile.foreground}:${profile.supported}`;
         if (!layout || source !== lastSource || settings !== lastSettings) {
-          const next = await layoutMarkdown(source, layoutOptions(columns));
+          const nextSource = source;
+          const next = await layoutMarkdown(nextSource, { ...layoutOptions(columns), signal: controller.signal });
+          if (!current()) return;
           layout = next; totalRows = next.totalRows ?? next.rows.reduce((n, group) => n + group.heightRows, 0);
           let start = 0;
           groups = next.rows.map(group => { const entry = { ...group, start, end: start + group.heightRows }; start = entry.end; return entry; });
-          lastSource = source; lastSettings = settings;
+          lastSource = nextSource; lastSettings = settings;
           previousLines = [];
         }
       }
+      if (!current()) return;
       scroll = Math.max(0, Math.min(scroll, maxScroll()));
       const screen = Array.from({ length: rows }, () => '');
       const placements = [];
@@ -197,16 +207,18 @@ Scroll uses terminal rows; tall inline formulas expand the surrounding line heig
       const footer = `${path.basename(file)} ${percent}% math ${Math.round(fontSize/initialFontSize*100)}% · ${sourceMode || !profile.supported ? 'source' : 'native'} · ${status} · +/- math s source r reload e edit q quit`;
       const after = `${ESC}[${rows+1};1H${ESC}[0m${ESC}[2K${ESC}[7m${fit(footer,columns)}${ESC}[0m`;
       await sender.present(placements, { before, after, cellWidth: profile.cellWidth, cellHeight: profile.cellHeight, viewportCols: columns, viewportRows: rows, refreshCrops: process.env.ZELLIJ !== undefined });
-      previousLines = screen;
+      if (current()) previousLines = screen;
     } catch (error) {
+      if (!current() || error?.name === 'AbortError') return;
       status = error.message;
       output.write(`${ESC}[${rows+1};1H${ESC}[2K${fit(status,columns)}`);
     } finally {
+      if (layoutController === controller) layoutController = undefined;
       busy = false;
       if (dirty || needsLayout) request();
     }
   }
-  function quit() { quitting = true; clearTimeout(timer); finish(); }
+  function quit() { quitting = true; layoutGeneration++; layoutController?.abort(); clearTimeout(timer); finish(); }
   let actions = Promise.resolve();
   function action(fn) {
     actions = actions.then(async () => {
@@ -258,15 +270,16 @@ Scroll uses terminal rows; tall inline formulas expand the surrounding line heig
     if (text) keys.write(text);
   }
   const resize = () => { previousLines = []; probePending = !values.text; request(true); };
+  process.on('SIGINT',quit); process.on('SIGTERM',quit);
   try {
     input.setRawMode(true); input.resume();
     profile = values.text ? profile : await queryTerminal(input,output);
     input.setRawMode(false); input.pause();
+    if (quitting) return;
     referenceCellHeight = profile.cellHeight;
     if (baseline !== undefined && baseline > profile.cellHeight) throw new Error('--text-baseline must not exceed terminal cell height.');
     sender = createTerminalGraphics(output);
     enter(); keys.on('keypress',keypress); input.on('data',routeInput); output.on('resize',resize);
-    process.on('SIGINT',quit); process.on('SIGTERM',quit);
     if (profile.pendingInput) routeInput(Buffer.from(profile.pendingInput));
     request(true); await done;
     await actions;
