@@ -1,9 +1,10 @@
 {
-  "name": "view-latex-md",
+  "name": "termlatex",
   "version": "0.1.0",
-  "description": "Read Markdown and real LaTeX formulas in your terminal: native text, transparent math images, no browser",
+  "description": "TermLatex: read Markdown and real LaTeX formulas in your terminal: native text, transparent math images, no browser",
   "type": "module",
   "bin": {
+    "termlatex": "cli.js",
     "view-latex-md": "cli.js"
   },
   "scripts": {
