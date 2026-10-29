@@ -37,11 +37,11 @@
   "author": "william1010121",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/william1010121/view-latex-md.git"
+    "url": "git+https://github.com/william1010121/termlatex.git"
   },
-  "homepage": "https://github.com/william1010121/view-latex-md",
+  "homepage": "https://github.com/william1010121/termlatex",
   "bugs": {
-    "url": "https://github.com/william1010121/view-latex-md/issues"
+    "url": "https://github.com/william1010121/termlatex/issues"
   },
   "keywords": [
     "markdown",

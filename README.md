@@ -3,7 +3,7 @@
 **Markdown stays text. Math gets real typesetting.**
 
 [![npm](https://img.shields.io/npm/v/termlatex)](https://www.npmjs.com/package/termlatex)
-[![CI](https://github.com/william1010121/view-latex-md/actions/workflows/ci.yml/badge.svg)](https://github.com/william1010121/view-latex-md/actions/workflows/ci.yml)
+[![CI](https://github.com/william1010121/termlatex/actions/workflows/ci.yml/badge.svg)](https://github.com/william1010121/termlatex/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A522-339933.svg)](https://nodejs.org/)
 
