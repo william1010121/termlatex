@@ -35,12 +35,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/william1010121/view-latex-md.git",
+    "url": "git+https://github.com/william1010121/termlatex.git",
     "directory": "packages/terminal-math"
   },
-  "homepage": "https://github.com/william1010121/view-latex-md/tree/main/packages/terminal-math",
+  "homepage": "https://github.com/william1010121/termlatex/tree/main/packages/terminal-math",
   "bugs": {
-    "url": "https://github.com/william1010121/view-latex-md/issues"
+    "url": "https://github.com/william1010121/termlatex/issues"
   },
   "keywords": [
     "latex",

@@ -3,7 +3,7 @@
 **Real LaTeX formulas. Native terminal text. A JavaScript API.**
 
 [![npm](https://img.shields.io/npm/v/view-latex-md-math)](https://www.npmjs.com/package/view-latex-md-math)
-[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/william1010121/view-latex-md/blob/main/LICENSE)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/william1010121/termlatex/blob/main/LICENSE)
 
 Browser-free formula rendering and mixed Markdown layout for JavaScript terminal UIs. MathJax → standalone SVG → resvg PNG → Kitty graphics. No Chromium, TeX subprocess, or Rust toolchain installation; resvg uses a precompiled native addon.
 
@@ -135,7 +135,7 @@ Subpath exports: `/formula`, `/layout` (also exports `textWidth`), `/terminal`, 
 
 ## Performance and limits
 
-Size-independent SVG caching reduced one measured 20-size formula zoom sweep from 224.927 ms to 57.911 ms (median of 10 rounds). This measures formula CPU work, not full-reader FPS. [Methodology, tests and remaining costs](https://github.com/william1010121/view-latex-md/blob/main/NATIVE_PERFORMANCE.md).
+Size-independent SVG caching reduced one measured 20-size formula zoom sweep from 224.927 ms to 57.911 ms (median of 10 rounds). This measures formula CPU work, not full-reader FPS. [Methodology, tests and remaining costs](https://github.com/william1010121/termlatex/blob/main/NATIVE_PERFORMANCE.md).
 
 First typesetting/rasterization runs on the JS thread, yielding every 16 new formula renders; background workers and lazy full-document layout are not implemented. Loaded documents retain formula references beyond the LRU budget. Character-grid spacing and row scrolling remain terminal constraints. Markdown images become text labels; complex multiline tables and clickable links are not implemented.
 
